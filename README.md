@@ -1,6 +1,6 @@
 # [BellaSDK](https://github.com/Neo-DannyDeTour/BellaSDK) - this is where I keep the ocean up-to-date. 
 
-# This is a new fork that works in Godot 4.6.2.
+# This is a new fork that works in Godot 4.7.1.
 Since 4.4 we have async GPU readback and this here does not use it.
 # KrautDev Fork of GodotOceanWaves
 This fork aims to add several features to make this amazing ocean implementation usable in a Godot game project.
