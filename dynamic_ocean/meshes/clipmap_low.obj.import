@@ -1,0 +1,25 @@
+[remap]
+
+importer="wavefront_obj"
+importer_version=1
+type="Mesh"
+uid="uid://mkodygt504hm"
+path="res://.godot/imported/clipmap_low.obj-bac72c56db8bd895cc410b4b8c24d53c.mesh"
+
+[deps]
+
+files=["res://.godot/imported/clipmap_low.obj-bac72c56db8bd895cc410b4b8c24d53c.mesh"]
+
+source_file="res://dynamic_ocean/meshes/clipmap_low.obj"
+dest_files=["res://.godot/imported/clipmap_low.obj-bac72c56db8bd895cc410b4b8c24d53c.mesh", "res://.godot/imported/clipmap_low.obj-bac72c56db8bd895cc410b4b8c24d53c.mesh"]
+
+[params]
+
+generate_tangents=true
+generate_lods=true
+generate_shadow_mesh=true
+generate_lightmap_uv2=false
+generate_lightmap_uv2_texel_size=0.2
+scale_mesh=Vector3(1, 1, 1)
+offset_mesh=Vector3(0, 0, 0)
+force_disable_mesh_compression=false

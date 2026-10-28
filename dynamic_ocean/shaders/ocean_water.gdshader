@@ -1,0 +1,175 @@
+shader_type spatial;
+render_mode blend_mix, depth_draw_always, cull_back, world_vertex_coords;
+
+#define MAX_CASCADES 8
+#define REFLECTANCE 0.02
+
+global uniform vec4 water_color : source_color;
+global uniform vec4 foam_color : source_color;
+uniform vec3 depth_color_consumption = vec3(22.0, 133.0, 168.0);
+
+uniform vec3 crest_color : source_color = vec3(0.0, 0.65, 0.85);
+uniform float crest_glow_intensity : hint_range(0.0, 2.0) = 0.8;
+uniform float aerated_foam_glow : hint_range(0.0, 2.0) = 0.5;
+
+uniform float roughness : hint_range(0.0, 1.0) = 0.4;
+uniform float normal_strength : hint_range(0.0, 1.0) = 1.0;
+uniform sampler2D foam_noise_tex : hint_default_white, repeat_enable, filter_linear_mipmap;
+
+group_uniforms distance_culling;
+uniform float wave_fade_start : hint_range(50.0, 10000.0, 10.0) = 1500.0;
+uniform float wave_fade_end : hint_range(100.0, 20000.0, 10.0) = 3000.0;
+uniform float normal_fade_distance : hint_range(100.0, 20000.0, 10.0) = 3000.0;
+uniform float foam_fade_distance : hint_range(100.0, 20000.0, 10.0) = 2500.0;
+
+uniform sampler2D depth_texture : hint_depth_texture, filter_linear_mipmap;
+uniform sampler2D screen_texture : hint_screen_texture, filter_linear_mipmap;
+
+group_uniforms cascade_data;
+uniform vec4 map_scales[MAX_CASCADES];
+global uniform uint num_cascades;
+global uniform sampler2DArray displacements;
+global uniform sampler2DArray normals : hint_normal;
+
+varying float wave_height;
+varying float foam_factor;
+varying float fresnel;
+
+vec2 rotate_uv(vec2 uv, float angle) {
+	float s = sin(angle);
+	float c = cos(angle);
+	return mat2(vec2(c, -s), vec2(s, c)) * uv;
+}
+
+void vertex() {
+	UV = VERTEX.xz;
+
+	float distance_cam = length(VERTEX.xz - CAMERA_POSITION_WORLD.xz);
+	if (distance_cam < wave_fade_end) {
+		float distance_factor = 1.0 - smoothstep(wave_fade_start, wave_fade_end, distance_cam);
+
+		vec3 displacement = vec3(0.0);
+		for (uint i = 0U; i < num_cascades; ++i) {
+			vec4 scales = map_scales[i];
+			displacement += textureLod(displacements, vec3(UV * scales.xy, float(i)), 0.0).xyz * scales.z;
+		}
+		VERTEX += displacement * distance_factor;
+		wave_height = displacement.y * distance_factor;
+	} else {
+		wave_height = 0.0;
+	}
+}
+
+void fragment() {
+	vec3 world_pos = (INV_VIEW_MATRIX * vec4(VERTEX, 1.0)).xyz;
+	float dist = length(world_pos.xz - CAMERA_POSITION_WORLD.xz);
+
+	vec3 gradient = vec3(0.0);
+	float foam_alpha = 0.0;
+
+	for (uint i = 0U; i < num_cascades; ++i) {
+		vec4 scales = map_scales[i];
+		vec3 coords = vec3(UV * scales.xy, float(i));
+		gradient += texture(normals, coords).xyw * vec3(scales.ww, 1.0);
+		vec2 rotated_foam_uv = rotate_uv(UV * scales.xy, float(i) * 2.3999632);
+		foam_alpha += texture(foam_noise_tex, rotated_foam_uv).r;
+	}
+	foam_alpha /= max(float(num_cascades), 1.0);
+	float foam_distance_factor = clamp(1.0 - (dist / max(foam_fade_distance, 1.0)), 0.0, 1.0);
+	foam_factor = smoothstep(0.0, 1.0, gradient.z * 0.75) * foam_distance_factor;
+
+	float depth_tex = texture(depth_texture, SCREEN_UV).r;
+	vec4 view_pos = INV_PROJECTION_MATRIX * vec4(SCREEN_UV * 2.0 - 1.0, depth_tex, 1.0);
+	view_pos.xyz /= (abs(view_pos.w) < 0.00001) ? 0.00001 : view_pos.w;
+
+	float physical_depth = max(VERTEX.z - view_pos.z, 0.0);
+
+	float smooth_alpha = smoothstep(0.0, 0.66, physical_depth);
+	ALPHA *= clamp(smooth_alpha, 0.0, 1.0);
+
+	float shoreline_mask = 1.0 - smoothstep(0.0, 1.5, physical_depth);
+	foam_factor = clamp(foam_factor + (shoreline_mask * foam_alpha), 0.0, 1.0);
+
+	if (ALPHA < 0.9) {
+		foam_factor = clamp(foam_factor + 0.5 - ALPHA, 0.0, 1.0);
+	}
+
+	float depth_visibility_range = clamp(
+		max(depth_color_consumption.r, max(depth_color_consumption.g, depth_color_consumption.b)),
+		0.001,
+		200.0
+	);
+
+	float factor_translucency = smoothstep(0.0, depth_visibility_range, physical_depth);
+	factor_translucency = clamp(factor_translucency, 0.35, 1.0);
+
+	vec3 screen_albedo = textureLod(screen_texture, SCREEN_UV, 0.0).rgb;
+	vec3 depth_water_color = mix(screen_albedo, water_color.rgb, factor_translucency);
+
+	float smooth_red = 1.0 - smoothstep(0.0, max(depth_color_consumption.r, 0.001), physical_depth);
+	float smooth_green = 1.0 - smoothstep(0.0, max(depth_color_consumption.g, 0.001), physical_depth);
+	float smooth_blue = 1.0 - smoothstep(0.0, max(depth_color_consumption.b, 0.001), physical_depth);
+
+	vec3 color_shallow = max(vec3(smooth_red, smooth_green, smooth_blue) * depth_water_color, water_color.rgb);
+	depth_water_color = mix(color_shallow, water_color.rgb, factor_translucency);
+
+	float wave_crest_mask = smoothstep(0.5, 3.5, wave_height);
+	float aerated_mask = smoothstep(0.1, 0.9, foam_factor);
+	float total_subsurface = clamp((wave_crest_mask * crest_glow_intensity) + (aerated_mask * aerated_foam_glow), 0.0, 1.0);
+
+	vec3 water_with_glow = mix(depth_water_color, crest_color, total_subsurface);
+
+	float final_foam_mix = clamp(foam_factor * foam_alpha, 0.0, 1.0);
+	ALBEDO = mix(water_with_glow, foam_color.rgb, final_foam_mix);
+
+	float normal_fade_factor = clamp(1.0 - (dist / max(normal_fade_distance, 1.0)), 0.0, 1.0);
+	gradient *= mix(0.015, normal_strength, normal_fade_factor);
+	vec3 world_normal = normalize(vec3(-gradient.x, 1.0, -gradient.y));
+	NORMAL = normalize((VIEW_MATRIX * vec4(world_normal, 0.0)).xyz);
+
+	float safe_rough = max(roughness, 0.001);
+	float nv_clamped = clamp(1.0 - dot(VIEW, NORMAL), 0.0001, 1.0);
+	fresnel = mix(
+		pow(nv_clamped, 5.0 * exp(-2.69 * safe_rough)) / (1.0 + 22.7 * pow(safe_rough, 1.5)),
+		1.0,
+		REFLECTANCE
+	);
+	ROUGHNESS = clamp((1.0 - fresnel) * foam_factor + 0.4, 0.04, 1.0);
+}
+
+float smith_masking_shadowing(in float cos_theta, in float alpha) {
+	float clamped_cos = clamp(cos_theta, 0.0001, 0.9999);
+	float sin_theta = sqrt(max(1.0 - clamped_cos * clamped_cos, 0.0001));
+	float denom = max(alpha * sin_theta, 0.0001);
+	float a = clamped_cos / denom;
+	float a_sq = a * a;
+	return a < 1.6 ? (1.0 - 1.259 * a + 0.396 * a_sq) / max(3.535 * a + 2.181 * a_sq, 0.0001) : 0.0;
+}
+
+float ggx_distribution(in float cos_theta, in float alpha) {
+	float a_sq = max(alpha * alpha, 0.0001);
+	float d = 1.0 + (a_sq - 1.0) * cos_theta * cos_theta;
+	return a_sq / max(PI * d * d, 0.0001);
+}
+
+void light() {
+	vec3 halfway = normalize(LIGHT + VIEW + vec3(0.0, 0.0, 0.00001));
+	float dot_nl = clamp(dot(NORMAL, LIGHT), 0.0001, 0.9999);
+	float dot_nv = clamp(dot(NORMAL, VIEW), 0.0001, 0.9999);
+	float safe_rough = max(roughness, 0.04);
+
+	// --- SPECULAR ---
+	float light_mask = smith_masking_shadowing(dot_nv, safe_rough);
+	float view_mask = smith_masking_shadowing(dot_nl, safe_rough);
+	float microfacet_distribution = ggx_distribution(clamp(dot(NORMAL, halfway), 0.0, 1.0), safe_rough);
+	float geometric_attenuation = 1.0 / max(1.0 + light_mask + view_mask, 0.0001);
+	SPECULAR_LIGHT += fresnel * microfacet_distribution * geometric_attenuation / (4.0 * dot_nv + 0.1) * ATTENUATION;
+
+	// --- DIFFUSE ---
+	vec3 sss_modifier = crest_color * 1.5;
+
+	float sss_height = max(0.0, wave_height + 2.5) * pow(max(dot(LIGHT, -VIEW), 0.0), 4.0) * pow(clamp(0.5 - 0.5 * dot(LIGHT, NORMAL), 0.0, 1.0), 3.0);
+	float sss_near = 0.5 * (dot_nv * dot_nv);
+	float lambertian = 0.5 * dot_nl;
+	DIFFUSE_LIGHT += mix((sss_height + sss_near) * sss_modifier / max(1.0 + light_mask, 0.0001) + lambertian, foam_color.rgb, foam_factor) * (1.0 - fresnel) * ATTENUATION * LIGHT_COLOR;
+}

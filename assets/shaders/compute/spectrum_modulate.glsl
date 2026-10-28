@@ -21,13 +21,15 @@ layout(std430, set = 1, binding = 0) restrict writeonly buffer FFTBuffer {
     vec2 data[]; // map_size x map_size x num_spectra x 2 * num_cascades
 };
 
-// FIXED: Removed "params" so these act as global variables, and restored vec2.
-layout(push_constant) uniform PushConstants {
-    vec2 tile_length;
-    float depth;
-    float time;
-    uint cascade_index;
-    float loop_period; // --- NEW ---
+layout(push_constant, std430) uniform PushConstants {
+    vec2 tile_length;   // 8 bytes
+    float depth;        // 4 bytes
+    float time;         // 4 bytes
+    uint cascade_index; // 4 bytes
+    float loop_period;  // 4 bytes
+    float pad1;         // 4 bytes
+    float pad2;         // 4 bytes
+                        // Total: 32 bytes tightly packed
 };
 
 /** Returns exp(j*x) assuming x >= 0. */
@@ -73,7 +75,7 @@ void main() {
     // If the loop_period is greater than 0, we are currently baking.
     if (loop_period > 0.001) {
         // Quantize the wave frequency to force it into an exact multiple of the loop duration
-        omega = floor(omega * loop_period / (2.0 * PI)) * ((2.0 * PI) / loop_period);
+        omega = round(omega * loop_period / (2.0 * PI)) * ((2.0 * PI) / loop_period);
     }
     // ----------------------------------------------------
 
@@ -86,17 +88,16 @@ void main() {
     vec2 h_inv = vec2(-h.y, h.x); // Used to simplify complex multiplication operations
 
     // --- WAVE DISPLACEMENT CALCULATION ---
-    vec2 hx = h_inv * k_unit.y;            // Equivalent: mul_complex(vec2(0, -k_unit.x), h);
+    vec2 hx = h_inv * k_unit.x;            // Equivalent: mul_complex(vec2(0, -k_unit.x), h);
     vec2 hy = h;
-    vec2 hz = h_inv * k_unit.x;            // Equivalent: mul_complex(vec2(0, -k_unit.z), h);
+    vec2 hz = h_inv * k_unit.y;            // Equivalent: mul_complex(vec2(0, -k_unit.z), h);
 
     // --- WAVE GRADIENT CALCULATION ---
-    // FIXME: i dont understand why k vectors need to be accessed yx instead of xy :(
-    vec2 dhy_dx = h_inv * k_vec.y;         // Equivalent: mul_complex(vec2(0, k_vec.x), h);
-    vec2 dhy_dz = h_inv * k_vec.x;         // Equivalent: mul_complex(vec2(0, k_vec.z), h);
-    vec2 dhx_dx = -h * k_vec.y * k_unit.y; // Equivalent: mul_complex(vec2(k_vec.x * k_unit.x, 0), -h);
-    vec2 dhz_dz = -h * k_vec.x * k_unit.x; // Equivalent: mul_complex(vec2(k_vec.y * k_unit.y, 0), -h);
-    vec2 dhz_dx = -h * k_vec.y * k_unit.x; // Equivalent: mul_complex(vec2(k_vec.x * k_unit.y, 0), -h);
+    vec2 dhy_dx = h_inv * k_vec.x;         // Equivalent: mul_complex(vec2(0, k_vec.x), h);
+    vec2 dhy_dz = h_inv * k_vec.y;         // Equivalent: mul_complex(vec2(0, k_vec.z), h);
+    vec2 dhx_dx = -h * k_vec.x * k_unit.x; // Equivalent: mul_complex(vec2(k_vec.x * k_unit.x, 0), -h);
+    vec2 dhz_dz = -h * k_vec.y * k_unit.y; // Equivalent: mul_complex(vec2(k_vec.y * k_unit.y, 0), -h);
+    vec2 dhz_dx = -h * k_vec.x * k_unit.y; // Equivalent: mul_complex(vec2(k_vec.x * k_unit.y, 0), -h);
 
     // Because h repsects the complex conjugation property (i.e., the output of IFFT will be a
     // real signal), we can pack two waves into one.

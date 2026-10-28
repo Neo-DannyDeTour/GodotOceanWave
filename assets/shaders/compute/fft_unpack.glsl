@@ -17,11 +17,12 @@ layout(std430, set = 1, binding = 0) restrict buffer FFTBuffer {
 	vec2 data[]; // map_size x map_size x num_spectra x 2 * num_cascades
 };
 
-layout(push_constant) restrict readonly uniform PushConstants {
-	uint cascade_index;
-	float whitecap;
-	float foam_grow_rate;
-	float foam_decay_rate;
+layout(push_constant, std430) uniform PushConstants {
+    uint cascade_index;
+    float whitecap;
+    float foam_grow_rate;
+    float foam_decay_rate;
+    // Total: Exactly 16 bytes. No padding needed!
 };
 
 // Tiling doesn't provide much of a benefit here (but it does a *little*)
@@ -35,6 +36,8 @@ void main() {
 	const uvec3 id_local = gl_LocalInvocationID;
 	const ivec3 id = ivec3(gl_GlobalInvocationID.xy, cascade_index);
 	// Multiplying output of inverse FFT by below factor is equivalent to ifftshift()
+	// Transpose the output coordinate because the FFT pipeline skips the second transpose pass.
+   	const ivec3 id_out = ivec3(id.y, id.x, id.z);
 	const float sign_shift = -2*((id.x & 1) ^ (id.y & 1)) + 1; // Equivalent: (-1^id.x)(-1^id.y)
 
 	tile[id_local.z*2][id_local.y][id_local.x] = FFT_DATA(id, id_local.z*2);
@@ -47,8 +50,8 @@ void main() {
 			float hx = tile[0][id_local.y][id_local.x].x;
 			float hy = tile[0][id_local.y][id_local.x].y;
 			float hz = tile[1][id_local.y][id_local.x].x;
-			imageStore(displacement_map, id, vec4(hx, hy, hz, 0) * sign_shift);
-			break;
+			imageStore(displacement_map, id_out, vec4(hx, hy, hz, 0) * sign_shift);
+           		break;
 		case 1:
 			float dhy_dx = tile[1][id_local.y][id_local.x].y * sign_shift;
 			float dhy_dz = tile[2][id_local.y][id_local.x].x * sign_shift;
@@ -58,13 +61,13 @@ void main() {
 
 			float jacobian = (1.0 + dhx_dx) * (1.0 + dhz_dz) - dhz_dx*dhz_dx;
 			float foam_factor = -min(0, jacobian - whitecap);
-			float foam = imageLoad(normal_map, id).a;
+			float foam = imageLoad(normal_map, id_out).a;
 			foam *= exp(-foam_decay_rate);
 			foam += foam_factor * foam_grow_rate;
 			foam = clamp(foam, 0.0, 1.0);
 
 			vec2 gradient = vec2(dhy_dx, dhy_dz) / (1.0 + abs(vec2(dhx_dx, dhz_dz)));
-			imageStore(normal_map, id, vec4(gradient, dhx_dx, foam));
-			break;
+			imageStore(normal_map, id_out, vec4(gradient, dhx_dx, foam));
+            		break;
 	}
 }

@@ -4,6 +4,7 @@
 [ext_resource type="Texture2D" uid="uid://cnft723bala47" path="res://assets/skybox.png" id="3_0ksgj"]
 [ext_resource type="PackedScene" uid="uid://cu66cb6hovn1q" path="res://DynamicOcean.tscn" id="4_272bh"]
 [ext_resource type="Script" uid="uid://d8uwldlwctjq" path="res://assets/player/camera.gd" id="4_v2yip"]
+[ext_resource type="ArrayMesh" uid="uid://bkd7y73pt40di" path="res://dynamic_ocean/meshes/clipmap_high_8k.obj" id="5_5vw27"]
 [ext_resource type="AudioStream" uid="uid://cvvn0vke5comw" path="res://assets/ocean_loop.wav" id="6_jpklm"]
 [ext_resource type="AudioStream" uid="uid://ck6vmandgjhy0" path="res://assets/wind_loop.wav" id="8_6r5si"]
 [ext_resource type="Script" uid="uid://81jber3sehs0" path="res://assets/player/waveheight_script.gd" id="16_veajc"]
@@ -72,7 +73,11 @@ transform = Transform3D(-0.996195, -0.0151344, 0.0858316, 0, 0.984807, 0.173648,
 script = ExtResource("4_v2yip")
 
 [node name="Water" parent="." unique_id=2118242669 instance=ExtResource("4_272bh")]
-transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 30, 0, -39)
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 411, 0, -86)
+mesh = ExtResource("5_5vw27")
+max_sim_distance = 300.0
+updates_per_second = 60.0
+mesh_quality = 2
 
 [node name="FogVolume" type="FogVolume" parent="." unique_id=1091396595]
 shape = 4
@@ -88,16 +93,14 @@ stream = ExtResource("8_6r5si")
 volume_db = -30.0
 autoplay = true
 
-[node name="Buoy" type="MeshInstance3D" parent="." unique_id=1936202993 node_paths=PackedStringArray("water")]
+[node name="Buoy" type="MeshInstance3D" parent="." unique_id=1936202993]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 3.9572754, 0)
 material_override = SubResource("StandardMaterial3D_wy12m")
 mesh = SubResource("CapsuleMesh_dssde")
 script = ExtResource("16_veajc")
-water = NodePath("")
 
-[node name="Buoy_transparent" type="MeshInstance3D" parent="." unique_id=135311144 node_paths=PackedStringArray("water")]
+[node name="Buoy_transparent" type="MeshInstance3D" parent="." unique_id=135311144]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 10, 0.9897461, 0)
 material_override = SubResource("StandardMaterial3D_vjgfr")
 mesh = SubResource("CapsuleMesh_dssde")
 script = ExtResource("16_veajc")
-water = NodePath("")

@@ -23,6 +23,15 @@ var _default_cache : Dictionary = {}
 @onready var _crest_glow_intensity : Array[float] = [0.8]
 @onready var _aerated_foam_glow : Array[float] = [0.5]
 
+# --- NEW: Distance & Render Control UI Variables ---
+@onready var _ocean_scale : Array[float] = [water.ocean_scale if "ocean_scale" in water else 1.0]
+@onready var _wave_fade_start : Array[float] = [water.wave_fade_start if "wave_fade_start" in water else 1500.0]
+@onready var _wave_fade_end : Array[float] = [water.wave_fade_end if "wave_fade_end" in water else 3000.0]
+@onready var _normal_fade_dist : Array[float] = [water.normal_fade_distance if "normal_fade_distance" in water else 3000.0]
+@onready var _foam_fade_dist : Array[float] = [water.foam_fade_distance if "foam_fade_distance" in water else 2500.0]
+@onready var _camera_far : Array[float] = [camera.far if camera else 4000.0]
+@onready var _fog_end : Array[float] = [$Environment.environment.fog_depth_end if $Environment and $Environment.environment else 350.0]
+
 func _ready() -> void:
 	if Engine.is_editor_hint(): return
 	
@@ -41,6 +50,15 @@ func _ready() -> void:
 	_default_cache["crest_color"] = Color(_crest_color[0], _crest_color[1], _crest_color[2])
 	_default_cache["crest_glow"] = _crest_glow_intensity[0]
 	_default_cache["aerated_glow"] = _aerated_foam_glow[0]
+	
+	# Cache Distance & Culling properties
+	_default_cache["ocean_scale"] = _ocean_scale[0]
+	_default_cache["wave_fade_start"] = _wave_fade_start[0]
+	_default_cache["wave_fade_end"] = _wave_fade_end[0]
+	_default_cache["normal_fade_dist"] = _normal_fade_dist[0]
+	_default_cache["foam_fade_dist"] = _foam_fade_dist[0]
+	_default_cache["camera_far"] = _camera_far[0]
+	_default_cache["fog_end"] = _fog_end[0]
 	
 	# 3. Deep copy the cascade parameters (so we save the original math)
 	var default_cascades : Array[WaveCascadeParameters] = []
@@ -268,6 +286,56 @@ func _render_imgui() -> void:
 	ImGui.Dummy(Vector2(0.0, 5.0)) 
 	# ---------------------
 
+	# --- DISTANCE & CULLING SECTION ---
+	ImGui.SeparatorText('Distance & Culling')
+	imgui_text_tooltip('Ocean Render Scale: ', 'Scales the ocean geometry extent in world units.\nIncreases total visible coverage to reach the horizon.')
+	ImGui.SameLine()
+	if ImGui.SliderFloat('##ocean_scale', _ocean_scale, 0.5, 16.0):
+		if "ocean_scale" in water:
+			water.ocean_scale = _ocean_scale[0]
+			clipmap_tile_size = _ocean_scale[0] if water.mesh_quality == water.MeshQuality.HIGH else _ocean_scale[0] * 4.0
+
+	imgui_text_tooltip('Wave Detail Start:  ', 'Distance in meters where wave vertex displacement begins smooth attenuation.')
+	ImGui.SameLine()
+	if ImGui.SliderFloat('##wave_fade_start', _wave_fade_start, 100.0, 10000.0):
+		if "wave_fade_start" in water:
+			water.wave_fade_start = _wave_fade_start[0]
+
+	imgui_text_tooltip('Wave Detail End:    ', 'Distance in meters where waves become flat.')
+	ImGui.SameLine()
+	if ImGui.SliderFloat('##wave_fade_end', _wave_fade_end, 500.0, 20000.0):
+		if "wave_fade_end" in water:
+			water.wave_fade_end = _wave_fade_end[0]
+			if "max_sim_distance" in water:
+				water.max_sim_distance = maxf(water.max_sim_distance, _wave_fade_end[0])
+
+	imgui_text_tooltip('Normal Detail Dist: ', 'Distance in meters where micro-normals attenuate.')
+	ImGui.SameLine()
+	if ImGui.SliderFloat('##normal_fade_dist', _normal_fade_dist, 500.0, 20000.0):
+		if "normal_fade_distance" in water:
+			water.normal_fade_distance = _normal_fade_dist[0]
+
+	imgui_text_tooltip('Foam Detail Dist:   ', 'Distance in meters where surface foam fades.')
+	ImGui.SameLine()
+	if ImGui.SliderFloat('##foam_fade_dist', _foam_fade_dist, 500.0, 20000.0):
+		if "foam_fade_distance" in water:
+			water.foam_fade_distance = _foam_fade_dist[0]
+
+	imgui_text_tooltip('Camera Far Plane:   ', 'Camera far clipping plane in meters.')
+	ImGui.SameLine()
+	if ImGui.SliderFloat('##camera_far', _camera_far, 500.0, 25000.0):
+		if camera:
+			camera.far = _camera_far[0]
+
+	imgui_text_tooltip('Fog End Distance:   ', 'Environment fog depth end in meters.')
+	ImGui.SameLine()
+	if ImGui.SliderFloat('##fog_end', _fog_end, 200.0, 25000.0):
+		if $Environment and $Environment.environment:
+			$Environment.environment.fog_depth_end = _fog_end[0]
+
+	ImGui.Dummy(Vector2(0.0, 5.0))
+	# ----------------------------------
+
 	ImGui.SeparatorText('Camera')
 	# Using Godot's built-in formatting for Vector3 to 2 decimal places
 	ImGui.Text('Camera Position:    %.2f, %.2f, %.2f' % [camera.global_position.x, camera.global_position.y, camera.global_position.z])
@@ -320,6 +388,43 @@ func reset_to_defaults() -> void:
 	_aerated_foam_glow[0] = _default_cache["aerated_glow"]
 	water.get_active_material(0).set_shader_parameter("aerated_foam_glow", _aerated_foam_glow[0])
 	
+	# Reset Distance & Culling properties
+	if _default_cache.has("ocean_scale"):
+		_ocean_scale[0] = _default_cache["ocean_scale"]
+		if "ocean_scale" in water:
+			water.ocean_scale = _ocean_scale[0]
+			clipmap_tile_size = _ocean_scale[0] if water.mesh_quality == water.MeshQuality.HIGH else _ocean_scale[0] * 4.0
+
+	if _default_cache.has("wave_fade_start"):
+		_wave_fade_start[0] = _default_cache["wave_fade_start"]
+		if "wave_fade_start" in water:
+			water.wave_fade_start = _wave_fade_start[0]
+
+	if _default_cache.has("wave_fade_end"):
+		_wave_fade_end[0] = _default_cache["wave_fade_end"]
+		if "wave_fade_end" in water:
+			water.wave_fade_end = _wave_fade_end[0]
+
+	if _default_cache.has("normal_fade_dist"):
+		_normal_fade_dist[0] = _default_cache["normal_fade_dist"]
+		if "normal_fade_distance" in water:
+			water.normal_fade_distance = _normal_fade_dist[0]
+
+	if _default_cache.has("foam_fade_dist"):
+		_foam_fade_dist[0] = _default_cache["foam_fade_dist"]
+		if "foam_fade_distance" in water:
+			water.foam_fade_distance = _foam_fade_dist[0]
+
+	if _default_cache.has("camera_far"):
+		_camera_far[0] = _default_cache["camera_far"]
+		if camera:
+			camera.far = _camera_far[0]
+
+	if _default_cache.has("fog_end"):
+		_fog_end[0] = _default_cache["fog_end"]
+		if $Environment and $Environment.environment:
+			$Environment.environment.fog_depth_end = _fog_end[0]
+
 	# 3. Reset All Wave Cascades & Force GPU Update
 	var original_cascades : Array[WaveCascadeParameters] = _default_cache["cascades"]
 	for i in range(water.parameters.size()):
